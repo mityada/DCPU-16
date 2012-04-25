@@ -172,7 +172,6 @@ _not_expose:
 	jmp _process_events
 
 _no_events:
-	xor eax, eax
 	ret
 
 _redraw_display:
