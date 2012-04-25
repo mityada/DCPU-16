@@ -7,6 +7,9 @@ section .bss
 	event	resd 24
 	gc	resd 1
 
+	character_map 	resd 1
+	video_ram	resd 1
+
 section .text
 	extern XOpenDisplay
 	extern XCreateSimpleWindow
@@ -17,70 +20,165 @@ section .text
 	extern XSetForeground
 	extern XFillRectangle
 	extern XFlush
+	extern XPending
+	extern XAllocSizeHints
+	extern XSetWMNormalHints
+	extern XFree
 
 	global _create_window
 	global _process_events
 	global _draw_char
 
 _create_window:
+	mov eax, [esp + 4]
+	mov [character_map], eax
+	mov eax, [esp + 8]
+	mov [video_ram], eax
+
 	push 0
 	call XOpenDisplay
 	add esp, 4
 	mov [display], eax
 
-	mov ecx, [eax + 33 * 4]		; default_screen
-	mov eax, [eax + 35 * 4]		; screens
-	lea eax, [eax + ecx * 4]	; screens[default_screen]
+	mov ecx, [eax + 33 * 4]			; default_screen
+	mov eax, [eax + 35 * 4]			; screens
+	lea eax, [eax + ecx * 4]		; screens[default_screen]
 	mov [screen], eax
 
-	mov ecx, [eax + 14 * 4]		; black_pixel
-	push ecx			; background
-	push ecx			; border
-	push 0				; border_width
-	push 12 * 8 * DCPU_PIXEL_SIZE	; height
-	push 32 * 4 * DCPU_PIXEL_SIZE	; width
-	push 0				; y
-	push 0				; x
-	mov ecx, [eax + 2 * 4]		; root
-	push ecx			; parent
+	mov ecx, [eax + 14 * 4]			; black_pixel
+	push ecx				; background
+	push ecx				; border
+	push 0					; border_width
+	push (12 * 8 + 8) * DCPU_PIXEL_SIZE	; height
+	push (32 * 4 + 8) * DCPU_PIXEL_SIZE	; width
+	push 0					; y
+	push 0					; x
+	mov ecx, [eax + 2 * 4]			; root
+	push ecx				; parent
 	mov eax, [display]
-	push eax			; display
+	push eax				; display
 	call XCreateSimpleWindow
 	add esp, 9 * 4
 	mov [window], eax
 
-	push 1 << 17			; event_mask
-	push eax			; w
+	push 1 << 17				; StructureNotifyMask
+	push eax				; w
 	mov eax, [display]
-	push eax			; display
+	push eax				; display
 	call XSelectInput
 	add esp, 12
 
+	call XAllocSizeHints
+	mov dword [eax], 1 << 4 | 1 << 5			; PMinSize | PMaxSize
+	mov dword [eax + 20], (32 * 4 + 8) * DCPU_PIXEL_SIZE	; min_width
+	mov dword [eax + 24], (12 * 8 + 8) * DCPU_PIXEL_SIZE	; min_height
+	mov dword [eax + 28], (32 * 4 + 8) * DCPU_PIXEL_SIZE	; max_width
+	mov dword [eax + 32], (12 * 8 + 8) * DCPU_PIXEL_SIZE	; max_height
+	push eax				; hints
 	mov eax, [window]
-	push eax			; w
+	push eax				; w
 	mov eax, [display]
-	push eax			; display
+	push eax				; display
+	call XSetWMNormalHints
+	add esp, 8
+
+	call XFree
+	add esp, 4
+
+	mov eax, [window]
+	push eax				; w
+	mov eax, [display]
+	push eax				; display
 	call XMapWindow
 	add esp, 8
 
-	push 0				; values
-	push 0				; valuemask
+	push 0					; values
+	push 0					; valuemask
 	mov eax, [window]
-	push eax			; d
+	push eax				; d
 	mov eax, [display]
-	push eax			; display
+	push eax				; display
 	call XCreateGC
 	add esp, 16
 	mov [gc], eax
 
 _wait_map_notify:
-	call _process_events
-	cmp dword [event], 19
+	call _next_event
+	cmp dword [event], 19			; MapNotify
 	jne _wait_map_notify
+
+	push 1 << 15				; ExposureMask
+	mov eax, [window]
+	push eax				; w
+	mov eax, [display]
+	push eax				; display
+	call XSelectInput
+	add esp, 12
 
 	ret
 
 _process_events:
+	mov eax, [display]
+	push eax				; display
+	call XPending
+	add esp, 4
+
+	test eax, eax
+	jz _no_events
+
+	call _next_event
+
+	cmp dword [event], 12			; Expose
+	jne _process_events
+	cmp dword [event + 9 * 4], 0		; count
+	jnz _process_events
+	call _redraw_display
+
+	jmp _process_events
+
+_no_events:
+	ret
+
+_redraw_display:
+	push ebx
+	push esi
+	push edi
+
+	mov ebx, 0
+
+	mov edi, 0
+_row:
+	mov esi, 0
+_char:
+	mov eax, [video_ram]
+	mov dx, [eax + ebx * 2]
+	and edx, 127
+	mov ecx, [character_map]
+	mov eax, [ecx + edx * 4]
+	shl eax, 16
+	mov ax, [ecx + edx * 4 + 2]
+	push eax
+	push edi
+	push esi
+	call _draw_char
+	add esp, 12
+
+	add ebx, 1
+
+	add esi, 1
+	cmp esi, 32
+	jne _char
+
+	add edi, 1
+	cmp edi, 12
+	jne _row
+
+	pop edi
+	pop esi
+	pop ebx
+	ret
+
+_next_event:
 	push event			; event_return
 	mov eax, [display]
 	push eax			; display
@@ -95,7 +193,7 @@ _draw_char:
 	push edi
 
 	mov eax, [screen]
-	mov eax, [eax + 13 * 4]		; black_pixel
+	mov eax, [eax + 13 * 4]		; white_pixel
 	push eax			; foreground
 	mov eax, [gc]
 	push eax			; gc
@@ -134,10 +232,10 @@ _loop_width:
 	jz _continue
 
 	mov ecx, [esp + 32]
-	lea eax, [esi + ecx * DCPU_PIXEL_SIZE]
+	lea eax, [esi + ecx * DCPU_PIXEL_SIZE + DCPU_PIXEL_SIZE * 4]
 	mov [esp + 12], eax
 	mov edx, [esp + 28]
-	lea eax, [edi + edx * DCPU_PIXEL_SIZE]
+	lea eax, [edi + edx * DCPU_PIXEL_SIZE + DCPU_PIXEL_SIZE * 4]
 	mov [esp + 16], eax
 	call XFillRectangle
 
