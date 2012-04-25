@@ -1,5 +1,8 @@
 %define DCPU_PIXEL_SIZE 4
 
+section .data
+	wm_delete_window db "WM_DELETE_WINDOW", 0
+
 section .bss
 	display resd 1
 	screen	resd 1
@@ -12,7 +15,9 @@ section .bss
 
 section .text
 	extern XOpenDisplay
+	extern XCloseDisplay
 	extern XCreateSimpleWindow
+	extern XDestroyWindow
 	extern XSelectInput
 	extern XMapWindow
 	extern XNextEvent
@@ -24,6 +29,8 @@ section .text
 	extern XAllocSizeHints
 	extern XSetWMNormalHints
 	extern XFree
+	extern XInternAtom
+	extern XSetWMProtocols
 
 	global _create_window
 	global _process_events
@@ -61,12 +68,30 @@ _create_window:
 	add esp, 9 * 4
 	mov [window], eax
 
-	push 1 << 17				; StructureNotifyMask
+	push 1 << 15				; Expose
 	push eax				; w
 	mov eax, [display]
 	push eax				; display
 	call XSelectInput
 	add esp, 12
+
+	push 0
+	push wm_delete_window
+	mov eax, [display]
+	push eax
+	call XInternAtom
+	add esp, 12
+
+	push eax
+	lea eax, [esp]
+	push 1
+	push eax
+	mov eax, [window]
+	push eax
+	mov eax, [display]
+	push eax
+	call XSetWMProtocols
+	add esp, 20
 
 	call XAllocSizeHints
 	mov dword [eax], 1 << 4 | 1 << 5			; PMinSize | PMaxSize
@@ -102,18 +127,10 @@ _create_window:
 	add esp, 16
 	mov [gc], eax
 
-_wait_map_notify:
-	call _next_event
-	cmp dword [event], 19			; MapNotify
-	jne _wait_map_notify
-
-	push 1 << 15				; ExposureMask
-	mov eax, [window]
-	push eax				; w
-	mov eax, [display]
-	push eax				; display
-	call XSelectInput
-	add esp, 12
+;_wait_map_notify:
+;	call _next_event
+;	cmp dword [event], 19			; MapNotify
+;	jne _wait_map_notify
 
 	ret
 
@@ -129,14 +146,33 @@ _process_events:
 	call _next_event
 
 	cmp dword [event], 12			; Expose
-	jne _process_events
+	jne _not_expose
 	cmp dword [event + 9 * 4], 0		; count
-	jnz _process_events
+	jnz _not_expose
 	call _redraw_display
+_not_expose:
+	cmp dword [event], 33			; ClientMessage
+	jne _process_events
+
+	mov eax, [window]
+	push eax
+	mov eax, [display]
+	push eax
+	call XDestroyWindow
+	add esp, 8
+
+	mov eax, [display]
+	push eax
+	call XCloseDisplay
+	add esp, 4
+
+	mov eax, 1
+	ret
 
 	jmp _process_events
 
 _no_events:
+	xor eax, eax
 	ret
 
 _redraw_display:

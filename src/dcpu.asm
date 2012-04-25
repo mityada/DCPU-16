@@ -6,6 +6,8 @@ section .bss
 	video_ram resw 32 * 12
 
 section .text
+	extern exit
+
 	extern _create_window
 	extern _process_events
 
@@ -28,5 +30,11 @@ _write:
 
 _loop:
 	call _process_events
+	test eax, eax
+	jnz _exit
 
 	jmp _loop
+
+_exit:
+	push 0
+	call exit
