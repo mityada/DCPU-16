@@ -12,6 +12,8 @@ section .bss
 
 	character_map 	resd 1
 	video_ram	resd 1
+	background	resd 1
+	colors		resd 16
 
 section .text
 	extern XOpenDisplay
@@ -23,6 +25,7 @@ section .text
 	extern XNextEvent
 	extern XCreateGC
 	extern XSetForeground
+	extern XSetBackground
 	extern XFillRectangle
 	extern XFlush
 	extern XPending
@@ -31,6 +34,7 @@ section .text
 	extern XFree
 	extern XInternAtom
 	extern XSetWMProtocols
+	extern XAllocColor
 
 	global _create_window
 	global _process_events
@@ -41,6 +45,8 @@ _create_window:
 	mov [character_map], eax
 	mov eax, [esp + 8]
 	mov [video_ram], eax
+	mov eax, [esp + 12]
+	mov [background], eax
 
 	push 0
 	call XOpenDisplay
@@ -132,6 +138,64 @@ _create_window:
 ;	cmp dword [event], 19			; MapNotify
 ;	jne _wait_map_notify
 
+	call _init_colors
+
+	ret
+
+_init_colors:
+	push ebx
+
+	mov eax, [screen]
+	mov eax, [eax + 12 * 4]			; cmap
+	sub esp, 12				; XColor
+	push esp				; screen_in_out
+	push eax				; colormap
+	mov eax, [display]
+	push eax				; display
+
+	mov ebx, 0
+_colors_loop:
+	mov word [esp + 16], 0
+	mov word [esp + 18], 0
+	mov word [esp + 20], 0
+
+	test ebx, 8
+	jz _no_highlight
+	add word [esp + 16], 0x5555
+	add word [esp + 18], 0x5555
+	add word [esp + 20], 0x5555
+_no_highlight:
+	test ebx, 4
+	jz _no_red
+	add word [esp + 16], 0xaaaa
+_no_red:
+	test ebx, 2
+	jz _no_green
+	add word [esp + 18], 0xaaaa
+_no_green:
+	test ebx, 1
+	jz _no_blue
+	add word [esp + 20], 0xaaaa
+_no_blue:
+	mov eax, ebx
+	and eax, 0xe
+	cmp eax, 6
+	jne _no_more_blue
+	add word [esp + 20], 0x5555
+_no_more_blue:
+
+	call XAllocColor
+	mov eax, [esp + 12]			; pixel
+	mov [colors + ebx * 4], eax
+
+	inc ebx
+	cmp ebx, 16
+	jne _colors_loop
+
+	add esp, 24
+
+	pop ebx
+
 	ret
 
 _process_events:
@@ -179,6 +243,30 @@ _redraw_display:
 	push esi
 	push edi
 
+	mov eax, [background]
+	mov eax, [eax]
+	mov eax, [colors + eax * 4]
+	push eax			; foreground
+	mov eax, [gc]
+	push eax			; gc
+	mov eax, [display]
+	push eax			; display
+	call XSetForeground
+	add esp, 12
+
+	push (12 * 8 + 8) * DCPU_PIXEL_SIZE		; height
+	push (32 * 4 + 8) * DCPU_PIXEL_SIZE		; width
+	push 0				; y
+	push 0				; x
+	mov eax, [gc]
+	push eax			; gc
+	mov eax, [window]
+	push eax			; d
+	mov eax, [display]
+	push eax			; display
+	call XFillRectangle
+	add esp, 7 * 4
+
 	mov ebx, 0
 
 	mov edi, 0
@@ -187,6 +275,14 @@ _row:
 _char:
 	mov eax, [video_ram]
 	mov dx, [eax + ebx * 2]
+	mov cx, dx
+	shr ecx, 8
+	and ecx, 0xf
+	push ecx
+	mov cx, dx
+	shr ecx, 12
+	and ecx, 0xf
+	push ecx
 	and edx, 127
 	mov ecx, [character_map]
 	mov eax, [ecx + edx * 4]
@@ -196,7 +292,7 @@ _char:
 	push edi
 	push esi
 	call _draw_char
-	add esp, 12
+	add esp, 20
 
 	add ebx, 1
 
@@ -227,8 +323,37 @@ _draw_char:
 	push esi
 	push edi
 
-	mov eax, [screen]
-	mov eax, [eax + 13 * 4]		; white_pixel
+	mov eax, [esp + 32]		; background
+	mov eax, [colors + eax * 4]
+	push eax			; foreground
+	mov eax, [gc]
+	push eax			; gc
+	mov eax, [display]
+	push eax			; display
+	call XSetForeground
+	add esp, 12
+
+	mov ecx, [esp + 16]
+	lea ecx, [ecx * DCPU_PIXEL_SIZE]
+	lea ecx, [ecx * 4 + DCPU_PIXEL_SIZE * 4]
+	mov edx, [esp + 20]
+	lea edx, [edx * DCPU_PIXEL_SIZE]
+	lea edx, [edx * 8 + DCPU_PIXEL_SIZE * 4]
+	push DCPU_PIXEL_SIZE * 8
+	push DCPU_PIXEL_SIZE * 4
+	push edx
+	push ecx
+	mov eax, [gc]
+	push eax			; gc
+	mov eax, [window]
+	push eax			; d
+	mov eax, [display]
+	push eax			; display
+	call XFillRectangle
+	add esp, 7 * 4
+
+	mov eax, [esp + 28]		; foreground
+	mov eax, [colors + eax * 4]
 	push eax			; foreground
 	mov eax, [gc]
 	push eax			; gc
