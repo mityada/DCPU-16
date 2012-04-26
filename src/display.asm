@@ -17,6 +17,7 @@ section .bss
 	colors		resd 16
 
 	thread	resd 1
+	state   resd 1
 
 section .text
 	extern gettimeofday
@@ -48,17 +49,17 @@ section .text
 	extern XdbeEndIdiom
 	extern XdbeSwapBuffers
 
-	global _create_window
-	global _process_events
-	global _redraw_display
+	global _init_display
 
-_create_window:
+_init_display:
 	mov eax, [esp + 4]
 	mov [character_map], eax
 	mov eax, [esp + 8]
 	mov [video_ram], eax
 	mov eax, [esp + 12]
 	mov [background], eax
+	mov eax, [esp + 16]
+	mov [state], eax
 
 	push 0
 	call XOpenDisplay
@@ -245,6 +246,9 @@ _display_thread:
 	jmp _display_thread
 
 .exit:
+	mov eax, [state]
+	mov byte [eax], 1
+
 	ret
 
 _process_events:

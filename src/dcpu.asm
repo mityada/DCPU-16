@@ -5,23 +5,23 @@ section .data
 section .bss
 	video_ram resw 32 * 12
 	background_color resw 1
+	display_state resb 1
 
 section .text
 	extern nanosleep
 	extern exit
 
-	extern _create_window
-	extern _process_events
-	extern _redraw_display
+	extern _init_display
 
 	global _start
 
 _start:
+	push display_state
 	push background_color
 	push video_ram
 	push character_map
-	call _create_window
-	add esp, 12
+	call _init_display
+	add esp, 16
 
 	mov word [background_color], 0x2
 
@@ -35,6 +35,9 @@ _write:
 	jne _write
 
 _loop:
+	cmp byte [display_state], 0
+	jne _exit
+
 	push 10000
 	push 0
 	mov eax, esp
