@@ -7,6 +7,7 @@ section .bss
 	background_color resw 1
 
 section .text
+	extern nanosleep
 	extern exit
 
 	extern _create_window
@@ -34,11 +35,13 @@ _write:
 	jne _write
 
 _loop:
-	;call _process_events
-	;test eax, eax
-	;jnz _exit
-
-	;call _redraw_display
+	push 10000
+	push 0
+	mov eax, esp
+	push 0
+	push eax
+	call nanosleep
+	add esp, 16
 
 	jmp _loop
 
