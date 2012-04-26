@@ -7,6 +7,7 @@ section .bss
 	display resd 1
 	screen	resd 1
 	window	resd 1
+	buffer	resd 1
 	event	resd 24
 	gc	resd 1
 
@@ -37,6 +38,11 @@ section .text
 	extern XInternAtom
 	extern XSetWMProtocols
 	extern XAllocColor
+
+	extern XdbeAllocateBackBufferName
+	extern XdbeBeginIdiom
+	extern XdbeEndIdiom
+	extern XdbeSwapBuffers
 
 	global _create_window
 	global _process_events
@@ -134,6 +140,16 @@ _create_window:
 	call XCreateGC
 	add esp, 16
 	mov [gc], eax
+
+	push 1					; XdbeBackground
+	mov eax, [window]
+	push eax
+	push eax				; window
+	mov eax, [display]
+	push eax				; dpy
+	call XdbeAllocateBackBufferName
+	add esp, 16
+	mov [buffer], eax
 
 ;_wait_map_notify:
 ;	call _next_event
@@ -245,6 +261,11 @@ _redraw_display:
 	push esi
 	push edi
 
+	mov eax, [display]
+	push eax
+	call XdbeBeginIdiom
+	add esp, 4
+
 	mov eax, [background]
 	mov eax, [eax]
 	mov eax, [colors + eax * 4]
@@ -262,7 +283,7 @@ _redraw_display:
 	push 0				; x
 	mov eax, [gc]
 	push eax			; gc
-	mov eax, [window]
+	mov eax, [buffer];[window]
 	push eax			; d
 	mov eax, [display]
 	push eax			; display
@@ -322,6 +343,22 @@ _char:
 
 	add esp, 8
 
+	push 1
+	mov eax, [window]
+	push eax
+	mov eax, esp
+	push 1
+	push eax
+	mov eax, [display]
+	push eax
+	call XdbeSwapBuffers
+	add esp, 20
+
+	mov eax, [display]
+	push eax
+	call XdbeEndIdiom
+	add esp, 4
+
 	pop edi
 	pop esi
 	pop ebx
@@ -363,7 +400,7 @@ _draw_char:
 	push ecx
 	mov eax, [gc]
 	push eax			; gc
-	mov eax, [window]
+	mov eax, [buffer];[window]
 	push eax			; d
 	mov eax, [display]
 	push eax			; display
@@ -398,7 +435,7 @@ _draw_char:
 	push 0				; x
 	mov eax, [gc]
 	push eax			; gc
-	mov eax, [window]
+	mov eax, [buffer];[window]
 	push eax			; d
 	mov eax, [display]
 	push eax			; display
