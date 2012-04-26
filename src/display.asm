@@ -16,6 +16,8 @@ section .bss
 	colors		resd 16
 
 section .text
+	extern gettimeofday
+
 	extern XOpenDisplay
 	extern XCloseDisplay
 	extern XCreateSimpleWindow
@@ -38,7 +40,7 @@ section .text
 
 	global _create_window
 	global _process_events
-	global _draw_char
+	global _redraw_display
 
 _create_window:
 	mov eax, [esp + 4]
@@ -267,6 +269,13 @@ _redraw_display:
 	call XFillRectangle
 	add esp, 7 * 4
 
+	sub esp, 8
+	mov eax, esp
+	push 0
+	push eax
+	call gettimeofday
+	add esp, 8
+
 	mov ebx, 0
 
 	mov edi, 0
@@ -283,6 +292,13 @@ _char:
 	shr ecx, 12
 	and ecx, 0xf
 	push ecx
+	test dx, 0x80
+	jz .no_blink
+	cmp dword [esp + 12], 500000
+	jl .no_blink
+	mov ecx, [esp + 4]
+	mov [esp], ecx
+.no_blink:
 	and edx, 127
 	mov ecx, [character_map]
 	mov eax, [ecx + edx * 4]
@@ -303,6 +319,8 @@ _char:
 	add edi, 1
 	cmp edi, 12
 	jne _row
+
+	add esp, 8
 
 	pop edi
 	pop esi
