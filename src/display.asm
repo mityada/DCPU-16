@@ -16,8 +16,12 @@ section .bss
 	background	resd 1
 	colors		resd 16
 
+	thread	resd 1
+
 section .text
 	extern gettimeofday
+	extern nanosleep
+	extern pthread_create
 
 	extern XOpenDisplay
 	extern XCloseDisplay
@@ -158,6 +162,13 @@ _create_window:
 
 	call _init_colors
 
+	push 0					; arg
+	push _display_thread
+	push 0
+	push thread
+	call pthread_create
+	add esp, 16
+
 	ret
 
 _init_colors:
@@ -214,6 +225,26 @@ _no_more_blue:
 
 	pop ebx
 
+	ret
+
+_display_thread:
+	call _process_events
+	test eax, eax
+	jnz .exit
+
+	call _redraw_display
+
+	push 10000000
+	push 0
+	mov eax, esp
+	push 0
+	push eax
+	call nanosleep
+	add esp, 16
+
+	jmp _display_thread
+
+.exit:
 	ret
 
 _process_events:

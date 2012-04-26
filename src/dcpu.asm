@@ -34,11 +34,11 @@ _write:
 	jne _write
 
 _loop:
-	call _process_events
-	test eax, eax
-	jnz _exit
+	;call _process_events
+	;test eax, eax
+	;jnz _exit
 
-	call _redraw_display
+	;call _redraw_display
 
 	jmp _loop
 
