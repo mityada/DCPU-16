@@ -11,10 +11,8 @@ section .bss
 	event	resd 24
 	gc	resd 1
 
-	character_map 	resd 1
-	video_ram	resd 1
-	background	resd 1
-	colors		resd 16
+	ram	resd 1
+	colors	resd 16
 
 	thread	resd 1
 	state   resd 1
@@ -53,12 +51,8 @@ section .text
 
 _init_display:
 	mov eax, [esp + 4]
-	mov [character_map], eax
+	mov [ram], eax
 	mov eax, [esp + 8]
-	mov [video_ram], eax
-	mov eax, [esp + 12]
-	mov [background], eax
-	mov eax, [esp + 16]
 	mov [state], eax
 
 	push 0
@@ -301,8 +295,8 @@ _redraw_display:
 	call XdbeBeginIdiom
 	add esp, 4
 
-	mov eax, [background]
-	mov eax, [eax]
+	mov eax, [ram]
+	mov eax, [eax + 0x8280 * 2]
 	mov eax, [colors + eax * 4]
 	push eax			; foreground
 	mov eax, [gc]
@@ -338,8 +332,8 @@ _redraw_display:
 _row:
 	mov esi, 0
 _char:
-	mov eax, [video_ram]
-	mov dx, [eax + ebx * 2]
+	mov eax, [ram]
+	mov dx, [eax + ebx * 2 + 0x8000 * 2]
 	mov cx, dx
 	shr ecx, 8
 	and ecx, 0xf
@@ -356,10 +350,10 @@ _char:
 	mov [esp], ecx
 .no_blink:
 	and edx, 127
-	mov ecx, [character_map]
-	mov eax, [ecx + edx * 4]
+	mov ecx, [ram]
+	mov eax, [ecx + edx * 4 + 0x8180 * 2]
 	shl eax, 16
-	mov ax, [ecx + edx * 4 + 2]
+	mov ax, [ecx + edx * 4 + 2 + 0x8180 * 2]
 	push eax
 	push edi
 	push esi
