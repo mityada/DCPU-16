@@ -85,15 +85,33 @@ _emulate:
 	call fopen
 	add esp, 8
 
+	push 0
+
 	push eax
-	push 0x1000
-	push 2
-	push ram
+	push 1
+	push 1
+
+.load_loop:
+	mov ecx, [esp + 12]
+	lea eax, [ecx * 2 + ram + 1]
+	push eax
 	call fread
-	add esp, 12
+	add esp, 4
+
+	mov ecx, [esp + 12]
+	lea eax, [ecx * 2 + ram]
+	push eax
+	call fread
+	add esp, 4
+
+	add dword [esp + 12], 1
+	cmp dword [esp + 12], 0x1000
+	jne .load_loop
+
+	add esp, 8
 
 	call fclose
-	add esp, 4
+	add esp, 8
 
 	xor ecx, ecx
 .zero_registers:
