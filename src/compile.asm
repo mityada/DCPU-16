@@ -7,12 +7,14 @@ section .data
 	file_size      dd 0
 	file_name      dd 0
 	buff           dd 0
-	buff_size      dd 512
+	buff_size      dd 0
+	buff2          dd 0
+	buff2_size     dd 0
 	curr           dd 0
 	symbols        db ";:[],+-_"
-	symbolscnt     dd 8
-	usage          dd "Usage: compile file.dasm", 10, 0
-	no_file        dd "Unable to open file", 10, 0
+	symbols_cnt    dd 8
+	usage          db "Usage: compile file.dasm", 10, 0
+	no_file        db "Unable to open file", 10, 0
 
 section .text
 	extern exit
@@ -24,6 +26,7 @@ section .text
 	extern rewind
 	extern printf
 	extern malloc
+	extern free
 	
 	global _start
 	
@@ -70,35 +73,129 @@ _start:
 	
 	push dword [file_size]
 	call malloc
-	add esp, 4
-	mov dword [buff], eax	
+	pop dword [buff_size]
+	mov dword [buff], eax
 	
 	mov ebp, 0
 .read_loop:
 	push dword [file_handle]
 	call fgetc
 	add esp, 4
-	mov byte [buff + ebp], al
+	mov edx, dword[buff]
+	mov byte [edx + ebp], al
+	
 	inc ebp
 	cmp ebp, dword [file_size]
 	jb .read_loop
 	
+	push dword [file_handle]
+	call fclose
+	add esp, 4
+	
+	call _remove_comments
+	
 	mov ebp, 0
 .out_loop:
-	movzx eax, byte [buff + ebp]
+	mov edx, dword [buff]
+	movzx eax, byte [edx + ebp]
 	push eax
 	call _printf_c
 	add esp, 4
 	inc ebp
-	cmp ebp, dword [file_size]
+	cmp ebp, dword [buff_size]
 	jb .out_loop
 	
-
-_eof:
-	push dword [file_handle]
-	call fclose
-	add esp, 4
 	jmp _exit
+	
+;-------------------------------------
+_remove_comments:
+	push dword [buff_size]
+	call malloc
+	pop dword [buff2_size]
+	mov dword [buff2], eax
+	
+	mov dword [curr], 0
+
+	mov ebp, 0
+	mov esi, 0 ; 0 - not comment, 1 - comment
+	mov ebx, 0 ; 0 - not in "", 1 - in ""
+.loop:
+	mov edx, dword [buff]
+	movzx eax, byte [edx + ebp]
+	
+	cmp eax, 10
+	je .newln
+	test esi, esi
+	jnz .cont
+	cmp eax, 34 ; ascii for "
+	je .string
+	cmp eax, 39 ; ascii for '
+	je .quote
+	cmp eax, ';'
+	je .comm
+	jmp .out
+.newln:
+	test esi, esi
+	jz .out
+	not esi
+	jmp .out
+.comm:
+	test ebx, ebx
+	jnz .out
+	not esi
+	jmp .cont
+.quote:
+	push ebp
+	call _append
+	add esp, 4
+	inc ebp
+	push ebp
+	call _append
+	add esp, 4
+	inc ebp
+	push ebp
+	call _append
+	add esp, 4
+	jmp .cont
+.string:
+	not ebx
+.out:
+	test esi, esi
+	jnz .cont
+	push ebp
+	call _append
+	add esp, 4
+.cont:
+	inc ebp
+	cmp ebp, dword [buff_size]
+	jb .loop
+	
+	
+.end:
+	push dword [buff]
+	call free
+	add esp, 4
+	mov eax, dword [buff2]
+	mov dword [buff], eax
+	mov ecx, dword [curr]
+	mov dword [buff_size], ecx
+
+	ret
+	
+_append:
+	mov eax, [esp + 4]
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + eax]
+	mov eax, dword [curr]
+	mov edx, dword [buff2]
+	mov byte [edx + eax], cl
+	inc dword [curr]
+	ret
+	
+;-------------------------------------
+_make_list:
+	
+	
 ;-------------------------------------
 _test_symbol:
 	mov ecx, [esp + 4]
@@ -119,7 +216,7 @@ _test_symbol:
 	inc edx
 .cnt:
 	inc eax
-	cmp eax, dword [symbolscnt]
+	cmp eax, dword [symbols_cnt]
 	jb .loop
 	
 	
