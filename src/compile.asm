@@ -16,10 +16,12 @@ section .data
 	usage          db "Usage: compile file.dasm", 10, 0
 	no_file        db "Unable to open file", 10, 0
 	
-	positions      dd 0 ; pointer to array with token positions in buff
-	types          dd 0 ; pointer to array with token types
-	sizes          dd 0 ; pointer to array with token resulting sizes
-	places         dd 0 ; pointer to array with token resulting places
+	positions      dd 0 ; pointer to array of dwords with token positions in buff2
+	types          dd 0 ; pointer to array of dwords with token types
+	                    ; 0 - unknown, 1 - :mark, 2 - operand, 3 - special operand, >=4 - arg
+	sizes          dd 0 ; pointer to array of bytes with token resulting sizes in bytes
+	places         dd 0 ; pointer to array of dwords with token resulting places
+	tokens_cnt     dd 0
 
 section .text
 	extern exit
@@ -52,15 +54,13 @@ _start:
 	call _read_file
 	call _remove_comments
 	call _print_buff
+	call _tokenize
 	
-	push dword [buff]
-	call _strlen
-	mov [esp], eax
+	push dword [tokens_cnt]
 	call _printf_i
 	add esp, 4
-	push dword [buff_size]
-	call _printf_i
-	add esp, 4
+	
+	call _print_tokens
 
 	jmp _exit
 
@@ -117,7 +117,7 @@ _read_file:
 	ret
 	
 ;-------------------------------------
-_remove_comments:
+_remove_comments: ; also makes everything lowercase
 	push dword [buff_size]
 	call malloc
 	pop dword [buff2_size]
@@ -125,7 +125,7 @@ _remove_comments:
 	
 	mov dword [curr], 0
 
-	mov ebp, 0
+	xor ebp, ebp
 	mov esi, 0 ; 0 - not comment, 1 - comment
 	mov ebx, 0 ; 0 - not in "", 1 - in ""
 .loop:
@@ -171,7 +171,17 @@ _remove_comments:
 .out:
 	test esi, esi
 	jnz .cont
-	push ebp
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	test ebx, ebx
+	jnz .skip_lower
+	lea edx, [ecx - 'A']
+	cmp edx, 'Z' - 'A'
+	ja .skip_lower
+	sub ecx, 'A'
+	add ecx, 'a'
+.skip_lower:
+	push ecx
 	call _append
 	add esp, 4
 .cont:
@@ -181,7 +191,7 @@ _remove_comments:
 	
 	
 .end:
-	push -1
+	push 0
 	call _append
 	add esp, 4
 
@@ -197,16 +207,8 @@ _remove_comments:
 	ret
 
 ;-------------------------------------	
-_append: ; will append to buff2 symbol buff[arg1], or 0 if arg1 == -1
-	mov eax, [esp + 4]
-	mov edx, dword [buff]
-	cmp eax, 0
-	jb .null
-	movzx ecx, byte [edx + eax]
-	jmp .not_null
-.null:
-	xor ecx, ecx
-.not_null:
+_append: ; will append to buff2 symbol arg1
+	mov ecx, dword [esp + 4]
 	mov eax, dword [curr]
 	mov edx, dword [buff2]
 	mov byte [edx + eax], cl
@@ -215,8 +217,136 @@ _append: ; will append to buff2 symbol buff[arg1], or 0 if arg1 == -1
 	
 ;-------------------------------------
 _tokenize: ; parse buff into tokens
+	mov eax, dword [buff_size]
+	shl eax, 1 ; *2
+	push eax
+	call malloc
+	pop dword [buff2_size]
+	mov dword [buff2], eax
+	
+	push dword [buff_size]
+	call malloc
+	add esp, 4
+	mov dword [sizes], eax
+	
+	mov eax, dword [buff_size]
+	shl eax, 2 ; *4
+	push eax
+	call malloc
+	add esp, 4
+	mov dword [positions], eax
+	
+	mov eax, dword [buff_size]
+	shl eax, 2 ; *4
+	push eax
+	call malloc
+	add esp, 4
+	mov dword [types], eax
+	
+	mov eax, dword [buff_size]
+	shl eax, 2 ; *4
+	push eax
+	call malloc
+	add esp, 4
+	mov dword [places], eax
+	
+	xor ebp, ebp
+.read_line:
+	call _sksp
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	cmp ecx, ':'
+	jne .op
+	inc ebp
+	mov edx, dword [types]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], 1
+	call _read_word
+.op:
+	mov edx, dword [types]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], 2
+	call _read_word
+	call _read_args
 	
 	
+	jmp .read_line
+	
+_read_word:
+	call _sksp
+	mov ecx, dword [curr]
+	mov edx, dword [positions]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], ecx
+.loop:
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	push ecx
+	call _test_symbol
+	pop ecx
+	test eax, eax
+	jz .end
+	push ecx
+	call _append
+	add esp, 4
+	inc ebp
+	jmp .loop	
+.end:
+	push 0
+	call _append
+	add esp, 4
+	inc dword [tokens_cnt]
+	ret
+	
+_read_args:
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	cmp ecx, 10
+	je .end
+	inc ebp
+	jmp _read_args
+.end:
+	ret
+	
+_sksp:
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	test ecx, ecx
+	jz .no_tokens
+	push ecx
+	call _test_symbol
+	add esp, 4
+	test eax, eax
+	jnz .end
+	inc ebp
+	jmp _sksp	
+.end:
+	ret
+.no_tokens:
+	add esp, 4
+	ret	
+	
+;-------------------------------------
+_print_tokens:
+	xor ebp, ebp
+.loop:
+	mov edx, dword [positions]
+	mov ecx, dword [edx + 4 * ebp]
+	add ecx, dword [buff2]
+	push ecx
+	call _printf_s
+	add esp, 4
+	mov edx, dword [types]
+	mov ecx, dword [edx + 4 * ebp]
+	push ecx
+	call _printf_i
+	add esp, 4
+
+	inc ebp
+	cmp ebp, dword [tokens_cnt]
+	jb .loop	
+	
+	ret
 ;-------------------------------------
 _test_symbol: ; will check if arg1 is valid symbol
 	mov ecx, [esp + 4]
