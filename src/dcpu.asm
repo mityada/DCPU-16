@@ -164,7 +164,38 @@ _execute_instruction:
 	shr di, 5
 	and edi, 0x1f	; dest
 
+	cmp ebx, 0
+	je .spec_op
+
+	push edi
+	push esi
+	push ebx
+	call _basic_op
+	add esp, 12
+
+	jmp .exit
+
+.spec_op:
+	push esi
+	push edi
+	call _spec_op
+	add esp, 8
+
+.exit:
+	pop edi
+	pop esi
+	pop ebx
+	ret
+
 _basic_op:
+	push ebx
+	push esi
+	push edi
+
+	mov ebx, [esp + 16]
+	mov esi, [esp + 20]
+	mov edi, [esp + 24]
+
 	push esi
 	call _get_value
 	add esp, 4
@@ -386,9 +417,49 @@ _basic_op:
 	pop ebx
 	ret
 
+_spec_op:
+	push ebx
+	push esi
+
+	mov ebx, [esp + 12]
+	mov esi, [esp + 16]
+
+	push esi
+	call _get_value
+	add esp, 4
+	mov esi, eax
+	and esi, 0xffff
+
+	cmp byte [skip], 0
+	je .not_skip
+	mov byte [skip], 0
+	jmp .exit
+.not_skip:
+
+	cmp ebx, 0x01
+	jne .exit
+	sub word [sp_reg], 1
+	mov cx, [sp_reg]
+	and ecx, 0xffff
+	mov ax, [pc_reg]
+	mov [ecx * 2 + ram], ax
+	mov [pc_reg], si
+
+.exit:
+	pop esi
+	pop ebx
+	ret
+
 _get_value:
 	mov eax, [esp + 4]
 
+	cmp eax, 0x18
+	jne .not_pop
+	mov ax, [sp_reg]
+	add word [sp_reg], 1
+	mov ax, [eax * 2 + ram]
+	ret
+.not_pop:
 	cmp eax, 0x1e
 	jg .literal
 	push eax
@@ -441,12 +512,12 @@ _get_address:
 	ret
 .not_at_register_plus_word:
 	cmp eax, 0x18
-	jne .not_pop
+	jne .not_push
+	sub word [sp_reg], 1
 	mov ax, [sp_reg]
-	add word [sp_reg], 1
 	lea eax, [eax * 2 + ram]
 	ret
-.not_pop:
+.not_push:
 	cmp eax, 0x19
 	jne .not_peek
 	mov ax, [sp_reg]
