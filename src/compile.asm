@@ -19,6 +19,7 @@ section .data
 	positions      dd 0 ; pointer to array of dwords with token positions in buff2
 	types          dd 0 ; pointer to array of dwords with token types
 	                    ; 0 - unknown, 1 - :mark, 2 - operand, 3 - special operand, >=4 - arg
+	                    ; 4 - arg, 5 - '[', 6 - ']', 7 - string, 8 - number, 9 - unknown word(->10/11), 10 - register, 11 - mark, 12 - +/-
 	sizes          dd 0 ; pointer to array of bytes with token resulting sizes in bytes
 	places         dd 0 ; pointer to array of dwords with token resulting places
 	tokens_cnt     dd 0
@@ -252,6 +253,8 @@ _tokenize: ; parse buff into tokens
 	
 	xor ebp, ebp
 .read_line:
+	cmp ebp, dword [buff_size]
+	jae .end
 	call _sksp
 	mov edx, dword [buff]
 	movzx ecx, byte [edx + ebp]
@@ -262,6 +265,7 @@ _tokenize: ; parse buff into tokens
 	mov eax, dword [tokens_cnt]
 	mov dword [edx + 4 * eax], 1
 	call _read_word
+	jmp .read_line
 .op:
 	mov edx, dword [types]
 	mov eax, dword [tokens_cnt]
@@ -271,6 +275,9 @@ _tokenize: ; parse buff into tokens
 	
 	
 	jmp .read_line
+	
+.end:
+	ret
 	
 _read_word:
 	call _sksp
@@ -298,15 +305,186 @@ _read_word:
 	inc dword [tokens_cnt]
 	ret
 	
+	
+; 4 - arg, 5 - '[', 6 - ']', 7 - string, 8 - number, 9 - unknown word(->10/11), 10 - register, 11 - mark, 12 - +/-
 _read_args:
+
+.loop:
+	call _sksp
 	mov edx, dword [buff]
 	movzx ecx, byte [edx + ebp]
-	cmp ecx, 10
-	je .end
+	cmp ecx, '['
+	je .addr
+	call _read_arg
+	call _sksp
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	cmp ecx, ','
+	jne .end
+	je .next
+	;jmp .loop
+.addr:
+	call _read_addr
+	call _sksp
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	cmp ecx, ','
+	jne .end
+.next:
+	;push 0
+	;call _append
+	;add esp, 4
+	;inc dword [tokens_cnt]
 	inc ebp
-	jmp _read_args
+	jmp .loop
 .end:
 	ret
+	
+_read_arg:
+	call _sksp
+	mov ecx, dword [curr]
+	mov edx, dword [positions]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], ecx
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	cmp ecx, 34 ;34 " 39 '
+	je .string
+	cmp ecx, 39
+	je .symb
+	mov edx, dword [types]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], 9
+.loop:
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	cmp ecx, ','
+	je .end
+	cmp ecx, '+'
+	je .end
+	cmp ecx, '-'
+	je .end
+	cmp ecx, ']'
+	je .end
+	
+	push ecx
+	call _test_symbol
+	pop ecx
+	test eax, eax
+	jz .end
+	push ecx
+	call _append
+	add esp, 4
+	inc ebp
+	jmp .loop
+.string:
+	mov edx, dword [types]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], 7
+	inc ebp
+	call .read_string
+	jmp .end
+.symb:
+	mov edx, dword [types]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], 8
+	inc ebp
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	push ecx
+	call _append
+	pop ecx
+	inc ebp
+	inc ebp
+.end:
+	push 0
+	call _append
+	add esp, 4
+	inc dword [tokens_cnt]
+	ret
+	
+.read_string:
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	cmp ecx, 34 ; "
+	je .rs_end
+	push ecx
+	call _append
+	add esp, 4
+	inc ebp
+	jmp .read_string
+.rs_end:
+	inc ebp
+	ret
+	
+_read_addr:
+	inc ebp
+	mov ecx, dword [curr]
+	mov edx, dword [positions]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], ecx
+	push '['
+	call _append
+	add esp, 4
+	push ecx
+	call _append
+	mov dword[esp], 0
+	call _append
+	add esp, 4
+	mov edx, dword [types]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], 5
+	inc dword [tokens_cnt]
+	
+	;now read inside []
+	
+	call _read_arg
+	call _sksp
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	cmp ecx, '+'
+	je .second
+	cmp ecx, '-'
+	je .second
+	jmp .end
+.second:
+	mov ecx, dword [curr]
+	mov edx, dword [positions]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], ecx
+	mov edx, dword [buff]
+	movzx ecx, byte [edx + ebp]
+	push ecx
+	call _append
+	mov dword[esp], 0
+	call _append
+	add esp, 4
+	mov edx, dword [types]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], 12
+	inc dword [tokens_cnt]
+	inc ebp
+	call _read_arg
+	call _sksp
+.end:
+	inc ebp
+	mov ecx, dword [curr]
+	mov edx, dword [positions]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], ecx
+	push ']'
+	call _append
+	add esp, 4
+	push ecx
+	call _append
+	mov dword[esp], 0
+	call _append
+	add esp, 4
+	mov edx, dword [types]
+	mov eax, dword [tokens_cnt]
+	mov dword [edx + 4 * eax], 6
+	inc dword [tokens_cnt]
+	
 	
 _sksp:
 	mov edx, dword [buff]
@@ -350,6 +528,10 @@ _print_tokens:
 ;-------------------------------------
 _test_symbol: ; will check if arg1 is valid symbol
 	mov ecx, [esp + 4]
+	cmp ecx, 34
+	je .ok
+	cmp ecx, 39
+	je .ok
 	lea edx, [ecx - '0']
 	cmp edx, '9' - '0'
 	jbe .ok
